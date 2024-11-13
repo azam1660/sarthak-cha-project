@@ -66,4 +66,13 @@ class BusService {
   }
 }
 
+export const getNearbyBuses = async (latitude, longitude, radius) => {
+  return await Bus.find({
+    location: {
+      $geoWithin: {
+        $centerSphere: [[longitude, latitude], radius / 6378.1], // radius in kilometers
+      },
+    },
+  }).select("busCode location speed heading");
+};
 export default new BusService();
