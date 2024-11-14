@@ -1,41 +1,98 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
-import { MapPin, Gauge, AlertCircle } from "lucide-react";
+import {
+  MapPin,
+  Gauge,
+  AlertCircle,
+  ZoomIn,
+  ZoomOut,
+  Compass,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 export default function Tracking() {
   const busCode = "a10";
-  const [location, setLocation] = useState({});
+  const [location, setLocation] = useState({
+    latitude: 51.505,
+    longitude: -0.09,
+    altitude: 0,
+  });
   const [speed, setSpeed] = useState(0);
+  const [heading, setHeading] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
+  const [zoom, setZoom] = useState(13);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
 
   useEffect(() => {
     const socket = io("http://localhost:5000");
+    socket.emit("trackBus", busCode);
 
-    socket.on("connect", () => {
-      setConnectionStatus("connected");
+    socket.on("busLocationUpdate", (data) => {
+      if (data.busCode === busCode) {
+        setLocation({
+          latitude: data.location.latitude,
+          longitude: data.location.longitude,
+          altitude: data.location.altitude || 0,
+        });
+        setSpeed(data.speed || 0);
+        setHeading(data.heading || 0);
+        setConnectionStatus("connected");
+      }
     });
 
     socket.on("connect_error", () => {
       setConnectionStatus("error");
     });
 
-    if (busCode) {
-      socket.emit("trackBus", busCode);
+    return () => {
+      socket.off("busLocationUpdate");
+      socket.off("connect_error");
+      socket.disconnect();
+    };
+  }, [busCode]);
 
-      socket.on("busLocationUpdate", (data) => {
-        if (data.busCode === busCode) {
-          setLocation(data.location);
-          setSpeed(data.speed);
-        }
+  useEffect(() => {
+    if (!mapRef.current) {
+      mapRef.current = L.map("map", {
+        center: [location.latitude, location.longitude],
+        zoom: zoom,
+        zoomControl: false,
+      });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(mapRef.current);
+      markerRef.current = L.marker([
+        location.latitude,
+        location.longitude,
+      ]).addTo(mapRef.current);
+
+      mapRef.current.on("zoomend", () => {
+        setZoom(mapRef.current.getZoom());
       });
     }
+  }, []);
 
-    return () => socket.disconnect();
-  }, [busCode]);
+  useEffect(() => {
+    if (mapRef.current && markerRef.current) {
+      mapRef.current.setView([location.latitude, location.longitude], zoom);
+      markerRef.current.setLatLng([location.latitude, location.longitude]);
+    }
+  }, [location, zoom]);
+
+  const handleZoom = (direction) => {
+    if (mapRef.current) {
+      const newZoom = direction === "in" ? zoom + 1 : zoom - 1;
+      mapRef.current.setZoom(newZoom);
+    }
+  };
 
   return (
     <div className="container mx-auto p-4 max-w-2xl">
@@ -58,25 +115,36 @@ export default function Tracking() {
           ) : (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white p-4 rounded-lg shadow-sm space-y-2">
-                  <div className="flex items-center gap-2 text-[#59458d]">
-                    <MapPin className="h-5 w-5" />
-                    <h3 className="font-semibold">Location</h3>
+                <div className="bg-white p-4 rounded-lg shadow-sm space-y-2 md:col-span-2">
+                  <div className="flex items-center justify-between text-[#59458d]">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-5 w-5" />
+                      <h3 className="font-semibold">Location</h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleZoom("out")}
+                        aria-label="Zoom out"
+                      >
+                        <ZoomOut className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleZoom("in")}
+                        aria-label="Zoom in"
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-gray-600">
-                      Latitude:{" "}
-                      <span className="font-mono">
-                        {location.latitude || "N/A"}
-                      </span>
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Longitude:{" "}
-                      <span className="font-mono">
-                        {location.longitude || "N/A"}
-                      </span>
-                    </p>
-                  </div>
+                  <div
+                    id="map"
+                    className="h-64 w-full rounded-lg"
+                    aria-label="Map showing bus location"
+                  ></div>
                 </div>
 
                 <div className="bg-white p-4 rounded-lg shadow-sm space-y-2">
@@ -85,10 +153,45 @@ export default function Tracking() {
                     <h3 className="font-semibold">Speed</h3>
                   </div>
                   <p className="text-2xl font-bold text-[#b38b35]">
-                    {speed}{" "}
+                    {speed.toFixed(1)}{" "}
                     <span className="text-base font-normal text-gray-600">
                       km/h
                     </span>
+                  </p>
+                </div>
+
+                <div className="bg-white p-4 rounded-lg shadow-sm space-y-2">
+                  <div className="flex items-center gap-2 text-[#59458d]">
+                    <MapPin className="h-5 w-5" />
+                    <h3 className="font-semibold">Altitude</h3>
+                  </div>
+                  <p className="text-2xl font-bold text-[#b38b35]">
+                    {location.altitude.toFixed(1)}{" "}
+                    <span className="text-base font-normal text-gray-600">
+                      meters
+                    </span>
+                  </p>
+                </div>
+
+                <div className="bg-white p-4 rounded-lg shadow-sm space-y-2">
+                  <div className="flex items-center gap-2 text-[#59458d]">
+                    <Compass className="h-5 w-5" />
+                    <h3 className="font-semibold">Heading</h3>
+                  </div>
+                  <p className="text-2xl font-bold text-[#b38b35]">
+                    {heading.toFixed(1)}°
+                  </p>
+                </div>
+
+                <div className="bg-white p-4 rounded-lg shadow-sm space-y-2 md:col-span-2">
+                  <div className="flex items-center gap-2 text-[#59458d]">
+                    <MapPin className="h-5 w-5" />
+                    <h3 className="font-semibold">Coordinates</h3>
+                  </div>
+                  <p className="text-lg font-medium text-[#b38b35]">
+                    Latitude: {location.latitude.toFixed(6)}
+                    <br />
+                    Longitude: {location.longitude.toFixed(6)}
                   </p>
                 </div>
               </div>

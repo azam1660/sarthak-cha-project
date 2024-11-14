@@ -5,9 +5,9 @@ import "leaflet/dist/leaflet.css";
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "/marker-icon-2x.png",
-  iconUrl: "/marker-icon.png",
-  shadowUrl: "/marker-shadow.png",
+  iconRetinaUrl: "/public/marker-icon-2x.png",
+  iconUrl: "/public/marker-icon.png",
+  shadowUrl: "/public/marker-shadow.png",
 });
 
 export default function MapComponent({ busLocation, stops, busCode }) {
